@@ -371,7 +371,8 @@ fn handle_event(ev: &sdl2::event::Event, app: &Application) -> bool
 
 fn draw_frame(app: &mut Application)
 {
-    unsafe{ app.device.wait_for_fences(&[app.in_flight_fences[app.current_frame]], true, u64::MAX) }.unwrap();
+    let in_flight_fences = [app.in_flight_fences[app.current_frame]];
+    unsafe{ app.device.wait_for_fences(&in_flight_fences, true, u64::MAX) }.unwrap();
 
     let (image_index, _) = unsafe{ app.swapchain_loader.acquire_next_image(
         app.swapchain,
@@ -388,10 +389,12 @@ fn draw_frame(app: &mut Application)
     let wait_semaphores = [app.image_available_semaphores[app.current_frame]];
     let signal_semaphores = [app.render_finished_semaphores[app.current_frame]];
 
+    let dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+    let command_buffers = [app.command_buffers[image_index as usize]];
     let submit_info = vk::SubmitInfo::builder()
         .wait_semaphores(&wait_semaphores)
-        .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-        .command_buffers(&[app.command_buffers[image_index as usize]])
+        .wait_dst_stage_mask(&dst_stage_mask)
+        .command_buffers(&command_buffers)
         .signal_semaphores(&signal_semaphores)
         .build();
 
@@ -399,10 +402,11 @@ fn draw_frame(app: &mut Application)
     unsafe{ app.device.queue_submit(app.device_queues.graphics, &[submit_info], app.in_flight_fences[app.current_frame]) }.unwrap();
 
     let swapchains = [app.swapchain];
+    let image_indices = [image_index];
     let present_info = vk::PresentInfoKHR::builder()
         .wait_semaphores(&signal_semaphores)
         .swapchains(&swapchains)
-        .image_indices(&[image_index])
+        .image_indices(&image_indices)
         .build();
         
     unsafe{ app.swapchain_loader.queue_present(app.device_queues.present, &present_info) }.unwrap();
@@ -699,9 +703,10 @@ unsafe fn init() -> Application
         ..Default::default()
     };
 
+    let color_blend_attachments = [color_blend_attachment];
     let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
         .logic_op_enable(false)
-        .attachments(&[color_blend_attachment])
+        .attachments(&color_blend_attachments)
         .build();
 
     let dynamic_states = [ ];
@@ -725,14 +730,16 @@ unsafe fn init() -> Application
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
         .build();
 
-    let color_attachment_ref = vk::AttachmentReference::builder()
+    let color_attachment_refs = [ 
+        vk::AttachmentReference::builder()
         .attachment(0)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .build();
+        .build()
+    ];
 
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&[color_attachment_ref])
+        .color_attachments(&color_attachment_refs)
         .build();
 
     let subpass_dependency = vk::SubpassDependency::builder()
@@ -744,10 +751,13 @@ unsafe fn init() -> Application
         .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
         .build();
 
+    let color_attachments = [color_attachment];
+    let subpasses = [subpass];
+    let subpass_dependencies = [subpass_dependency];
     let render_pass_info = vk::RenderPassCreateInfo::builder()
-        .attachments(&[color_attachment])
-        .subpasses(&[subpass])
-        .dependencies(&[subpass_dependency])
+        .attachments(&color_attachments)
+        .subpasses(&subpasses)
+        .dependencies(&subpass_dependencies)
         .build();
 
     let render_pass = device.create_render_pass(&render_pass_info, None).unwrap();
@@ -767,13 +777,15 @@ unsafe fn init() -> Application
 
     let pipeline_cache = vk::PipelineCache::null();
     
-    let graphics_pipeline = device.create_graphics_pipelines(pipeline_cache, &[pipeline_info], None).unwrap()[0];
+    let pipeline_infos = [pipeline_info];
+    let graphics_pipeline = device.create_graphics_pipelines(pipeline_cache, &pipeline_infos, None).unwrap()[0];
 
     let mut framebuffers = Vec::with_capacity(swapchain_image_views.len());
     for img in &swapchain_image_views {
+        let framebuffer_attachments = [*img];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
             .render_pass(render_pass)
-            .attachments(&[*img])
+            .attachments(&framebuffer_attachments)
             .width(swap_extent.width)
             .height(swap_extent.height)
             .layers(1)
@@ -804,6 +816,7 @@ unsafe fn init() -> Application
         let clear_color = vk::ClearValue{
             color: vk::ClearColorValue{ float32: [0.0, 0.0, 0.0, 1.0] }
         };
+        let clear_values = [ clear_color ];
 
         let render_pass_begin = vk::RenderPassBeginInfo::builder()
             .render_pass(render_pass)
@@ -812,7 +825,7 @@ unsafe fn init() -> Application
                 offset: Offset2D{ x: 0, y: 0 },
                 extent: swap_extent
             })
-            .clear_values(&[ clear_color ])
+            .clear_values(&clear_values)
             .build();
 
         device.cmd_begin_render_pass(command_buffers[i], &render_pass_begin, vk::SubpassContents::INLINE);
