@@ -171,9 +171,9 @@ struct Application
 
     current_frame: usize,
 
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "validation")]
     debug_loader: ext::DebugUtils,
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "validation")]
     debug: vk::DebugUtilsMessengerEXT,
 } 
 impl Application
@@ -219,7 +219,7 @@ impl Drop for Application
             self.device.destroy_shader_module(self.fragment_module, None);
 
             cfg_if::cfg_if! {
-                if #[cfg(debug_assertions)] {
+                if #[cfg(feature = "validation")] {
                     self.debug_loader.destroy_debug_utils_messenger(self.debug, None);
                 }
             }
@@ -435,7 +435,7 @@ unsafe fn init() -> Application
         .collect();
     let mut required_layers = Vec::<String>::new();
 
-    if cfg!(debug_assertions) {
+    if cfg!(feature = "validation") {
         required_exts.push("VK_EXT_debug_utils".into());
         required_layers.push("VK_LAYER_KHRONOS_validation".into());
     }
@@ -472,7 +472,7 @@ unsafe fn init() -> Application
     );
 
     cfg_if::cfg_if! {
-        if #[cfg(debug_assertions)] {
+        if #[cfg(feature = "validation")] {
             let debug_msg = create_debug_messenger(&entry, &instance);
         }
     }
@@ -875,9 +875,9 @@ unsafe fn init() -> Application
 
         current_frame: 0,
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "validation")]
         debug_loader: debug_msg.0,
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "validation")]
         debug: debug_msg.1,
     }
 }
