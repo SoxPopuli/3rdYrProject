@@ -2,3 +2,4 @@ code/target/
 report/build/
 
 .gdb_history
+.~lock*
