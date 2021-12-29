@@ -1,6 +1,13 @@
 pub mod window;
 use window::Window;
 
+use crate::vertex::Vertex;
+
+use nalgebra::Vector2;
+use nalgebra::Vector3;
+
+use lazy_static::lazy_static;
+
 use ash::{
     Instance,
     Entry,
@@ -43,7 +50,6 @@ use std::{
 };
 
 
-
 pub struct Renderer 
 {
     window: Window,
@@ -79,6 +85,9 @@ pub struct Renderer
     pub graphics_pipeline: vk::Pipeline,
     pub graphics_pipeline_layout: vk::PipelineLayout,
 
+    pub vertex_buffer: vk::Buffer,
+    pub vertex_buffer_memory: vk::DeviceMemory,
+
     pub command_pool: vk::CommandPool,
     pub command_buffers: Vec<vk::CommandBuffer>,
 
@@ -98,6 +107,15 @@ pub struct Renderer
 impl Renderer
 {
     const fn max_frames_in_flight() -> usize { 2 }
+    fn get_vertices() -> [Vertex; 3] {
+         let vertices: [Vertex; 3] = [
+            Vertex::new([0.0, -0.5], [0.0, 1.0, 1.0]),
+            Vertex::new([0.5, 0.5], [1.0, 0.0, 1.0]),
+            Vertex::new([-0.5, 0.5], [1.0, 1.0, 0.0]),
+        ];
+
+         vertices
+    }
 
     pub fn window(&self) -> &Window { &self.window }
     pub fn window_mut(&mut self) -> &mut Window { &mut self.window }
@@ -259,13 +277,18 @@ impl Renderer
             vk::PipelineCache::null()
         );
 
+        let vertices = Renderer::get_vertices();
+
+        let ( vertex_buffer, vertex_buffer_memory ) = create_vertex_buffer(&instance, physical_device, &device, &vertices);
+
         let framebuffers = create_framebuffers(&device, &swapchain_image_views, swap_extent, render_pass);
 
         let pool_info = vk::CommandPoolCreateInfo::builder()
             .queue_family_index(graphics_index)
             .build();
         let command_pool = device.create_command_pool(&pool_info, None).unwrap();
-        let command_buffers = create_command_buffers(&device, command_pool, graphics_index, render_pass, &framebuffers, swap_extent, graphics_pipeline);
+
+        let command_buffers = create_command_buffers(&device, command_pool, graphics_index, render_pass, &framebuffers, swap_extent, graphics_pipeline, &vertices, vertex_buffer);
 
         let semaphore_info = vk::SemaphoreCreateInfo::default();
         let fence_info = vk::FenceCreateInfo::builder()
@@ -309,6 +332,8 @@ impl Renderer
             fragment_module,
             graphics_pipeline,
             graphics_pipeline_layout: pipeline_layout,
+            vertex_buffer,
+            vertex_buffer_memory,
             render_pass,
             command_pool,
             command_buffers,
@@ -451,6 +476,7 @@ impl Renderer
             self.graphics_pipeline = new_graphics_pipeline;
 
             self.swapchain_framebuffers = create_framebuffers(&self.device, &self.swapchain_image_views, self.swap_extent, self.render_pass);
+
             self.command_buffers = create_command_buffers(
                 &self.device, 
                 self.command_pool,
@@ -458,7 +484,9 @@ impl Renderer
                 self.render_pass, 
                 &self.swapchain_framebuffers, 
                 self.swap_extent, 
-                self.graphics_pipeline
+                self.graphics_pipeline,
+                &Self::get_vertices(),
+                self.vertex_buffer
             );
         }
     }
@@ -489,6 +517,10 @@ impl Renderer
         self.framebuffer_resized = false;
     }
 
+    pub fn find_memory_type(&self, type_filter: u32, properties: vk::MemoryPropertyFlags) -> Result<u32, String>
+    {
+        find_memory_type(&self.instance, self.physical_device, type_filter, properties)
+    }
 }
 impl Drop for Renderer 
 {
@@ -503,6 +535,10 @@ impl Drop for Renderer
             }
 
             self.cleanup_swapchain(self.swapchain);
+
+            self.device.destroy_buffer(self.vertex_buffer, None);
+            self.device.free_memory(self.vertex_buffer_memory, None);
+
             self.device.destroy_command_pool(self.command_pool, None);
 
             //images destroyed by destroy_swapchain
@@ -615,7 +651,6 @@ pub struct DeviceQueues
 
 
 // free functions
-
 fn choose_physical_device(instance: &Instance) -> vk::PhysicalDevice
 {
     let physical_devices = unsafe{ instance.enumerate_physical_devices() }.unwrap();
@@ -850,6 +885,72 @@ unsafe fn create_render_pass(device: &Device, surface_format: vk::SurfaceFormatK
     device.create_render_pass(&render_pass_info, None).unwrap()
 }
 
+fn find_memory_type(
+    instance: &Instance, 
+    physical_device: vk::PhysicalDevice,
+    type_filter: u32,
+    properties: vk::MemoryPropertyFlags,
+) -> Result<u32, String> {
+    let mem_props = unsafe{ instance.get_physical_device_memory_properties(physical_device) };
+
+    for i in 0..mem_props.memory_type_count {
+        if (type_filter & (1 << i) != 0) &&
+            ((mem_props.memory_types[i as usize].property_flags & properties) == properties) {
+
+            return Ok(i);
+        }
+    }
+
+    Err(format!("Failed to find memory type {}", type_filter))
+}
+
+unsafe fn allocate_vertex_buffer(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    device: &Device,
+    buffer: vk::Buffer
+) -> vk::DeviceMemory {
+    let mem_req = device.get_buffer_memory_requirements(buffer);
+    let mem_type = find_memory_type(instance, physical_device, mem_req.memory_type_bits, 
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
+
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(mem_req.size)
+        .memory_type_index(mem_type.unwrap())
+        .build();
+
+    device.allocate_memory(&alloc_info, None).expect("failed to allocate vertex buffer")
+}
+
+unsafe fn create_vertex_buffer(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    device: &Device,
+    vertices: &[Vertex]
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let size = std::mem::size_of::<Vertex>() * vertices.len();
+    let buffer_info = vk::BufferCreateInfo::builder()
+        .size(size as u64)
+        .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .build();
+
+    let vertex_buffer = device.create_buffer(&buffer_info, None).expect("failed to create vertex buffer");
+
+    let vertex_memory = allocate_vertex_buffer(instance, physical_device, device, vertex_buffer);
+
+    device.bind_buffer_memory(vertex_buffer, vertex_memory, 0).expect("vertex memory binding failed");
+
+    //get cpu accessable memory
+    let data = device.map_memory(vertex_memory, 0, buffer_info.size, vk::MemoryMapFlags::empty()).expect("failed to map vertex buffer");
+
+    //copy memory into buffer
+    data.copy_from(vertices.as_ptr().cast(), size as usize);
+    device.unmap_memory(vertex_memory);
+
+    (vertex_buffer, vertex_memory)
+}
+
 unsafe fn create_graphics_pipeline(device: &Device, 
     vertex_module: ShaderModule, 
     fragment_module: ShaderModule,
@@ -873,9 +974,15 @@ unsafe fn create_graphics_pipeline(device: &Device,
 
     let shader_stages = [ vert_shader_stage, frag_shader_stage ];
 
+    let vertex_bindings = [ Vertex::binding_description() ];
+    let vertex_attributes = Vertex::attribute_descriptions();
+
     let vertex_input_info = vk::PipelineVertexInputStateCreateInfo {
-        vertex_binding_description_count: 0,
-        vertex_attribute_description_count: 0,
+        vertex_binding_description_count: vertex_bindings.len() as u32,
+        p_vertex_binding_descriptions: vertex_bindings.as_ptr(),
+
+        vertex_attribute_description_count: vertex_attributes.len() as u32,
+        p_vertex_attribute_descriptions: vertex_attributes.as_ptr(),
 
         ..Default::default()
     };
@@ -1003,7 +1110,9 @@ unsafe fn create_command_buffers(
     render_pass: vk::RenderPass,
     framebuffers: &Vec<vk::Framebuffer>,
     swap_extent: vk::Extent2D,
-    graphics_pipeline: vk::Pipeline
+    graphics_pipeline: vk::Pipeline,
+    vertices: &[Vertex],
+    vertex_buffer: vk::Buffer
 ) -> Vec<vk::CommandBuffer>
 {
 
@@ -1037,7 +1146,12 @@ unsafe fn create_command_buffers(
 
         device.cmd_begin_render_pass(command_buffers[i], &render_pass_begin, vk::SubpassContents::INLINE);
         device.cmd_bind_pipeline(command_buffers[i], vk::PipelineBindPoint::GRAPHICS, graphics_pipeline);
-        device.cmd_draw(command_buffers[i], 3, 1, 0, 0);
+
+        let vertex_buffers = [vertex_buffer];
+        let offsets = [0];
+        device.cmd_bind_vertex_buffers(command_buffers[i], 0, &vertex_buffers, &offsets);
+
+        device.cmd_draw(command_buffers[i], vertices.len() as u32, 1, 0, 0);
         device.cmd_end_render_pass(command_buffers[i]);
         
         device.end_command_buffer(command_buffers[i]).unwrap();

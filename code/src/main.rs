@@ -1,4 +1,7 @@
+extern crate nalgebra_glm as glm;
+
 mod renderer;
+mod vertex;
 
 use crate::{
     renderer::Renderer,
