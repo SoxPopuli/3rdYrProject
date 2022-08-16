@@ -18,7 +18,7 @@ impl Window
 
        let window = video.window(crate::PROGRAM_NAME, width, height)
            .position_centered()
-           .resizable()
+           //.resizable()
            .vulkan()
            .build()
            .unwrap();

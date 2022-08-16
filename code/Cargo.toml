@@ -28,3 +28,5 @@ lazy_static = "1.4.0"
 cfg-if = "1.0.0"
 
 memoffset = "0.6.5" #provides offset_of
+
+image = "0.24.3" #image support

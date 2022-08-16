@@ -1,0 +1,8 @@
+\documentclass[../report.tex]{subfiles}
+
+\begin{document}
+
+The aim of this project was to create a Physically Based Renderer using Rust as the language and Vulkan as the API, unfortionatly I was not able to achive this goal
+
+\end{document}
+

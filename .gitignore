@@ -3,3 +3,5 @@ report/build/
 
 .gdb_history
 .~lock*
+.pdf
+.zip

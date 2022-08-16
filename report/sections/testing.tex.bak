@@ -1,0 +1,13 @@
+\documentclass[../report.tex]{subfiles}
+
+\begin{document}
+
+\subsection{Testing}
+Because the output of the application was purely visual, any form of automated unit testing was not viable, as a result we relied on manual testing, whereby the program would be compiled and ran every few changes to ensure that the program still worked properly.
+However we did use Vulkans validation layers very extensively whenever something went wrong and it was not very clear what the cause was, having an output that told us that a certain input into a function was causing the whole application to stop rendering was very useful when debugging and iterating on the designs.
+
+\subsection{Evaluation}
+Although the project did not quite match up to the goals set at the beginning, it is still a competant renderer and took a lot of time and effort to create. Moreover the render implements a lot of techniques needed for rendering, as well as functions and systems to simplify and abstract the process, meaning further implementation will be easier now that there is a foundation to work off of.
+
+This project has helped show that the process of drawing 3D objects onto a screen is much more complicated than one would think, and we did not expect to lose so much time on subtle bugs and conceptual misunderstandings of how certain systems work, when planning similar projects in the future, it would be prudent to attempt to anticipate roadblocks that end up losing a lot of time.
+\end{document}

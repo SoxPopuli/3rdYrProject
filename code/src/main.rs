@@ -12,6 +12,7 @@ use ash::vk::PresentModeKHR;
 use std::time::{ Duration, Instant };
 use std::thread::sleep;
 
+pub const PROGRAM_NAME: &'static str = env!("CARGO_PKG_NAME");
 
 struct Application 
 {
@@ -97,7 +98,6 @@ impl Application
 }
 
 
-pub const PROGRAM_NAME: &'static str = env!("CARGO_PKG_NAME");
 
 fn main() 
 {
